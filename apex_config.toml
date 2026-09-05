@@ -1,0 +1,44 @@
+# APEX Production Configuration
+
+[nasa]
+cfar_threshold_db = 10.0
+sigma_threshold = 3.0
+max_history_per_apid = 4096
+known_apids = [256, 266]
+
+[constellation]
+earth_radius_km = 6371.0
+min_elevation_deg = 5.0
+gamma = 0.95
+eta = 0.1
+circuit_breaker_threshold = 5
+circuit_breaker_recovery_s = 30.0
+
+[gpu]
+nvlink_bandwidth_gbps = 900.0
+pcie_bandwidth_gbps = 64.0
+min_nvlink_for_training = 2
+
+[f35]
+gamma = 0.92
+eta = 0.15
+max_retries = 3
+pipeline_stages = ['unit_test', 'integration', 'static_analysis', 'hil_simulation', 'certification', 'deployment']
+
+[ew]
+cfar_threshold_db = 10.0
+max_signal_buffer = 100000
+confirmation_samples = 3
+classification_threshold = 0.5
+
+[cmmc]
+gamma = 0.95
+eta = 0.1
+cui_patterns_enabled = True
+
+[swarm]
+earth_radius_m = 6371000.0
+heartbeat_timeout_s = 30.0
+gamma = 0.85
+eta = 0.15
+min_reliability_for_engagement = 0.5
