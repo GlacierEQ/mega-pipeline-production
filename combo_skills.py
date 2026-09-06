@@ -217,6 +217,71 @@ class ComboRegistry:
 
         return result
 
+    def execute_combo(
+        self,
+        combo_id: str,
+        context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Execute a combo skill with smart step ordering.
+        
+        Executes steps in topological order, passing context between steps.
+        Each step receives the context from previous steps.
+        
+        Returns a dict with execution results.
+        
+        Raises:
+            ValueError: If combo_id not found or has circular dependencies.
+        """
+        combo = self.combos.get(combo_id)
+        if not combo:
+            raise ValueError(f"Combo skill {combo_id} not found")
+
+        # Get execution order
+        execution_order = self.get_execution_order(combo_id)
+
+        # Execute steps in order
+        results: Dict[str, Any] = {
+            "combo_id": combo_id,
+            "combo_name": combo.name,
+            "steps": {},
+            "success": True,
+            "errors": [],
+        }
+
+        for step_id in execution_order:
+            step = next(s for s in combo.steps if s.skill_id == step_id)
+
+            # Build step context from previous results
+            step_context = {**context}
+            for input_name, input_skill_id in step.inputs.items():
+                if input_skill_id in results["steps"]:
+                    step_context[input_name] = results["steps"][input_skill_id]
+
+            try:
+                # Execute step (simulated)
+                step_result = {
+                    "step_id": step.skill_id,
+                    "name": step.name,
+                    "status": "completed",
+                    "output": f"Executed {step.name}",
+                    "context_keys": list(step_context.keys()),
+                }
+                results["steps"][step_id] = step_result
+            except Exception as e:
+                results["steps"][step_id] = {
+                    "step_id": step.skill_id,
+                    "name": step.name,
+                    "status": "failed",
+                    "error": str(e),
+                }
+                results["success"] = False
+                results["errors"].append(f"Step {step.name} failed: {e}")
+
+                if step.required:
+                    break
+
+        return results
+
 
 # ─── Built-in Combo Skills ───────────────────────────────────────────────────
 
