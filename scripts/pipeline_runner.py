@@ -19,7 +19,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 # ─── Constants ───────────────────────────────────────────────────────────────
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 
 class PhaseStatus(Enum):
     PENDING = "pending"
@@ -109,9 +109,15 @@ class PipelineResult:
 class PipelineRunner:
     """Runs the 10-phase production pipeline."""
 
-    def __init__(self, target: str, skip_phases: Optional[List[str]] = None) -> None:
+    def __init__(
+        self,
+        target: str,
+        skip_phases: Optional[List[str]] = None,
+        issue_assessment_path: Optional[str] = None,
+    ) -> None:
         self.target = Path(target)
         self.skip_phases = skip_phases or []
+        self.issue_assessment_path = Path(issue_assessment_path) if issue_assessment_path else None
         self.result = PipelineResult(
             task=str(target),
             start_time=time.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -138,8 +144,29 @@ class PipelineRunner:
         self.result.phases.append(result)
         return result
 
+    def _materialize_issue_assessment(self) -> Optional[str]:
+        """Materialize Operator-authored legal orientation when a source exists.
+
+        Explicit --issue-assessment wins. Otherwise a target repository may opt in by
+        placing source rows at .apex/issue_assessments.json. This is an orientation
+        artifact, not a new approval gate.
+        """
+        source = self.issue_assessment_path
+        conventional = self.target / ".apex" / "issue_assessments.json"
+        if source is None and conventional.exists():
+            source = conventional
+        if source is None:
+            return None
+        if not source.exists():
+            raise FileNotFoundError(f"Issue assessment source not found: {source}")
+
+        from legal_issue_assessment import materialize_issue_assessment
+
+        output = materialize_issue_assessment(source, self.target)
+        return str(output)
+
     def phase_orient(self) -> PhaseResult:
-        """Phase 1: Orient — inspect repository."""
+        """Phase 1: Orient — inspect repository and legal orientation input."""
         # Check for key files
         has_agents = (self.target / "AGENTS.md").exists()
         has_readme = (self.target / "README.md").exists()
@@ -148,6 +175,7 @@ class PipelineRunner:
         test_files = list(self.target.glob("**/test_*.py"))
 
         evidence = f"Files: {len(py_files)} py, {len(test_files)} tests"
+        artifacts: List[str] = []
         if has_agents:
             evidence += ", AGENTS.md"
         if has_readme:
@@ -155,10 +183,16 @@ class PipelineRunner:
         if has_pyproject:
             evidence += ", pyproject.toml"
 
+        matrix_artifact = self._materialize_issue_assessment()
+        if matrix_artifact:
+            evidence += ", Issue/My assessment materialized"
+            artifacts.append(matrix_artifact)
+
         return PhaseResult(
             name="Orient",
             status=PhaseStatus.PASSED,
             evidence=evidence,
+            artifacts=artifacts,
         )
 
     def phase_grill(self) -> PhaseResult:
@@ -363,6 +397,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=f"Mega-Pipeline: Production v{VERSION}")
     parser.add_argument("--target", type=str, required=True, help="Target directory")
     parser.add_argument("--skip", type=str, default="", help="Skip phases (comma-separated)")
+    parser.add_argument("--issue-assessment", type=str, default=None, help="JSON source for Operator-authored Issue / My assessment rows")
     parser.add_argument("--output", type=str, default=None, help="Output file")
     parser.add_argument("--format", choices=["json", "markdown", "both"], default="both")
     args = parser.parse_args()
@@ -373,7 +408,11 @@ def main() -> int:
         return 1
 
     skip = [s.strip() for s in args.skip.split(",") if s.strip()]
-    runner = PipelineRunner(str(target), skip_phases=skip)
+    runner = PipelineRunner(
+        str(target),
+        skip_phases=skip,
+        issue_assessment_path=args.issue_assessment,
+    )
     result = runner.run()
 
     # Output
